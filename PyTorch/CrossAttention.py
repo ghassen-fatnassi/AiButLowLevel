@@ -10,8 +10,12 @@ class SelfAttHead(nn.Module):
         self.Q=torch.zeros([])
         self.K=torch.zeros([])
         self.V=torch.zeros([])
-    def forward(self,X):#X is a matrix where the rows are the tokens' embeddings
-        self.Q=self.WQ @ X
-        self.K=self.WK @ X
-        self.V=self.WV @ X
-        
+    def forward(self,E):#X is a matrix where the rows are the tokens' embeddings
+        #E is (emb_dim,num_tokens)
+        #self.WQ is (d_k,emb_dim)
+        #self.WQ is (d_k,emb_dim)
+        #self.WQ is (emb_dim,emb_dim) 
+        self.Q=self.WQ @ E #returns (d_k,num_tokens)
+        self.K=self.WK @ E #returns (d_k,num_tokens)
+        self.V=self.WV @ E #returns (emb_dim,num_tokens)
+        E=E+
