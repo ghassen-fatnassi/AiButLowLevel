@@ -4,7 +4,13 @@ from torch import nn
 import math
 
 # The class decomposition is inspired from Umar Jamil tutorial
-# This code follows closely the paper "Attention is All You Need" based on my interpretation
+# even tho he made a mistake in the multiheadattention part 
+# where he did not Project the QKV of each embedding using a seperate linear projection 
+# but just sliced and put them in order into the heads 
+# which is different to what i've found in the paper
+
+# This code follows closely the paper "Attention is All You Need" based on my interpretation 
+# but tailored for decoder only arch (autoregressive)
 # If there's any mistake I'll gladly fix it after a pull request or an issue
 
 
@@ -22,8 +28,8 @@ class InputEmbeddings(nn.Module):
         # If I give it a tensor with size (batch_size,seq_length) containing the index of each token
         # It'll return a tensor (batch_size,seq_length,d_model) => it'll basically add a dimension 
         # containing the embedding of each token
+        
         return self.Embedding(Tokens) * math.sqrt(self.d_model)
-
 
 class PosEncoding(nn.Module):
     """Takes in a sequence of embeddings and adds to them their corresponding positional encoding"""
@@ -61,7 +67,6 @@ class PosEncoding(nn.Module):
         E = self.PE[:, :E.shape[1], :] + E
         return E
 
-
 class MLPBlock(nn.Module):
     """Multi-Layer Perceptron block with two linear layers and ReLU activation"""
     
@@ -81,9 +86,64 @@ class MLPBlock(nn.Module):
         return self.L2(torch.relu(self.L1(E)))
 
 class LayerNormalization(nn.Module):
-    def __init__():
+    def __init__(self,d_model):
         super().__init__()
         pass
-    def forward(self,)
+    def forward(self,E):
+        pass
 
-PosEncoding(30, 10)
+class ResConnection(nn.Module): 
+    # LayerNorm & the sublayer are implemented here 
+    # sublayer can be an attention block or an mlp block 
+    # => this is basically a wrapper that also implements LayerNorm
+    def __init__(self,d_model):
+        super().__init__()
+        self.Norm=LayerNormalization(d_model)
+    def forward(self,E,next_layer):
+        
+        return E + self.Norm(next_layer(E))
+
+class MultiHeadAtt(nn.Module):
+
+    # imma construct this class to be modular and work in an encoder or a decoder (masked & unmasked)
+    # it's okay if u see some things don't align with your intuition , the math is correct nevertheless
+
+    def __init__(self,num_heads,d_model):
+        super().__init__()
+        self.num_heads=num_heads
+        self.d_model=d_model
+        self.d_qkv=d_model/self.num_heads
+        if( d_model % num_heads == 0 ):
+            raise "d_model is not divisible by h"
+        # I'm setting bias to false since there's no relu after this operation 
+        # and also since there's a layernorm directly after the attention mechanism
+        self.W_Q=nn.Linear(self.d_model,self.d_model,bias=False)
+        self.W_K=nn.Linear(self.d_model,self.d_model,bias=False)
+        self.W_V=nn.Linear(self.d_model,self.d_model,bias=False)
+        self.W_O=nn.Linear(self.d_model,self.d_model,bias=False) # concat(head1,head2,..headi,..headn)*agg
+        
+        self.H_Q=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
+        self.H_K=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
+        self.H_V=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
+        
+    @staticmethod 
+    #equivalent to MultiHeadAtt.attention=staticmethod(MultiHeadAtt)
+    def attention(q,k,v,mask):
+        pass    
+
+    def forward(self,E,mask):
+        # this will work for cross attention and self attention , 
+        # we just gotta make E_enc=E_dec
+        Q=self.W_Q(E)
+        K=self.W_K(E)
+        V=self.W_V(E)
+        Heads_Q=torch.tensor([hq(Q) for hq in self.H_Q])
+        Heads_K=torch.tensor([hk(K) for hk in self.H_K])
+        Heads_V=torch.tensor([hv(V) for hv in self.H_V])
+        heads_out=[]
+        for i in range(self.num_heads):
+            heads_out.append(MultiHeadAtt.attention(Heads_Q[i],Heads_K[i],Heads_V[i],mask))
+        heads_together_strong=torch.cat(heads_out,dim=2)
+        # since each of them is (batch_size,seq_length,d_qkv)
+        return self.W_O(heads_together_strong)
+
