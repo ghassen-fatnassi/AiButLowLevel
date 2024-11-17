@@ -53,15 +53,15 @@ class PosEncoding(nn.Module):
         # If the d_model is not even, this will cause an error,
         # since the number of even and odd indices will not be equal
         
+        # Unsqueeze() so we leave a place for the batch dimension so we can do a modular forward(x) function
+        self.PE.unsqueeze(dim=0)
+
         # We do it like this since we want the positional encoding to be part of the class attributes
         # but since it is involved with the calculation of the embedding, it will receive a gradient.
         # We can't do requires_grad=False since that will only make the attribute not receive the gradient,
         # while the calculation will be calculated nevertheless, and as the size of the input sequence gets bigger
         # the gradient will become larger too, inference time-- and vram++ (very bad for us)
         self.register_buffer('PE', PE, persistent=False)  # (batch_size,seq_length,d_model)
-        
-        # Unsqueeze() so we leave a place for the batch dimension so we can do a modular forward(x) function
-        self.PE.unsqueeze(dim=0)
     
     def forward(self, E):
         E = self.PE[:, :E.shape[1], :] + E
@@ -122,28 +122,67 @@ class MultiHeadAtt(nn.Module):
         self.W_V=nn.Linear(self.d_model,self.d_model,bias=False)
         self.W_O=nn.Linear(self.d_model,self.d_model,bias=False) # concat(head1,head2,..headi,..headn)*agg
         
-        self.H_Q=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
-        self.H_K=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
-        self.H_V=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False)])
+        self.H_Q=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False) for _ in range(self.num_heads)])
+        self.H_K=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False) for _ in range(self.num_heads)])
+        self.H_V=nn.ModuleList([nn.Linear(self.d_model,self.d_qkv,bias=False) for _ in range(self.num_heads)])
         
     @staticmethod 
     #equivalent to MultiHeadAtt.attention=staticmethod(MultiHeadAtt)
     def attention(q,k,v,mask):
-        pass    
+        d_k=q.shape[-1] #(batch,seq_length,d_k)
+        att_scores=torch.matmul(q,k.transpose(-2,-1))/(d_k**0.5)
+        if mask != None:
+            att_scores=att_scores.masked_fill(mask==0,float='inf')
+        att_weights = torch.softmax(att_scores, dim=-1)
+        values=torch.matmul(att_weights,v)
+        return values
 
     def forward(self,E,mask):
         # this will work for cross attention and self attention , 
         # we just gotta make E_enc=E_dec
+
         Q=self.W_Q(E)
         K=self.W_K(E)
         V=self.W_V(E)
+
         Heads_Q=torch.tensor([hq(Q) for hq in self.H_Q])
         Heads_K=torch.tensor([hk(K) for hk in self.H_K])
         Heads_V=torch.tensor([hv(V) for hv in self.H_V])
+
         heads_out=[]
         for i in range(self.num_heads):
             heads_out.append(MultiHeadAtt.attention(Heads_Q[i],Heads_K[i],Heads_V[i],mask))
+
         heads_together_strong=torch.cat(heads_out,dim=2)
+        aggregated_values=self.W_O(heads_together_strong)
         # since each of them is (batch_size,seq_length,d_qkv)
-        return self.W_O(heads_together_strong)
+        return aggregated_values
+
+class decoderBlock(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+    def forward(self):
+        pass
+
+class decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+    def forward(self):
+        pass
+
+class Prejection(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+    def forward(self):
+        pass
+    
+class DecoderTransformer(nn.Module):
+    def __init__(self,vocab_size,d_model,d_mlp,num_heads,N):#N is how much we gonna repeat the decoderBlock
+        super().__init__()
+        pass
+    def forward(self):
+        pass
 
