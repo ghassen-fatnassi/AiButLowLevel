@@ -88,8 +88,8 @@ class MultiHeadAtt(nn.Module):
         self.num_heads = num_heads
         self.d_model = d_model
         self.d_qkv = d_model // self.num_heads
-        self.dropout = nn.Dropout(dropout)  # Dropout added here
-        self.temperature = temperature  # Temperature parameter added here
+        self.dropout = nn.Dropout(dropout)  
+        self.temperature = temperature 
         
         if d_model % num_heads != 0:
             raise ValueError("d_model must be divisible by num_heads")
@@ -109,8 +109,8 @@ class MultiHeadAtt(nn.Module):
         att_scores = torch.matmul(q, k.transpose(-2, -1)) / (d_k ** 0.5)
         if mask is not None:
             att_scores = att_scores.masked_fill(mask == 0,-1e9)
-        att_weights = att_scores.softmax(dim=-1) / temperature  # Temperature applied to softmax
-        att_weights = torch.nn.functional.dropout(att_weights, p=0.1)  # Apply dropout
+        att_weights = att_scores.softmax(dim=-1) / temperature
+        att_weights = torch.nn.functional.dropout(att_weights, p=0.1)
         weighted_values = torch.matmul(att_weights, v)
         return weighted_values
 
@@ -140,9 +140,7 @@ class DecoderBlock(nn.Module):
         self.res_conn2 = ResConnection(d_model)
         
     def forward(self, E, mask=None):
-        # Self attention with residual connection
         att_output = self.res_conn1(E, lambda x: self.self_attention(x, mask))
-        # MLP with residual connection
         mlp_output = self.res_conn2(att_output, lambda x: self.mlp(x))
         return mlp_output
 
@@ -181,7 +179,7 @@ class Transformer(nn.Module):
         for _ in range(max_length - input_ids.shape[1]):
             seq_len = input_ids.shape[1]
             mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=0).bool()
-            mask = mask.unsqueeze(0)  # Add batch dimension
+            mask = mask.unsqueeze(0)
             logits = self.forward(input_ids, mask)
             next_token_logits = logits[:, -1, :] / temperature
             pre_next_token=torch.softmax(next_token_logits, dim=-1)
