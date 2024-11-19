@@ -34,15 +34,14 @@ class PosEncoding(nn.Module):
         
         # [1e5^(2*i/d_model)] with i going from 1 to d_model/2
         in_term = torch.exp(torch.arange(0, self.d_model, 2) * (-math.log(1e5)/self.d_model))
-        
+        # what i understood from this line is that the d_model needs to be even 
+        # or else we need to create another list in_term_odd
         PE[:, 0::2] = torch.sin(pos * in_term)
         PE[:, 1::2] = torch.cos(pos * in_term)
-        
-        # Unsqueeze() so we leave a place for the batch dimension so we can do a modular forward(x) function
-        PE = PE.unsqueeze(dim=0)
-
         # We do it like this since we want the positional encoding to be part of the class attributes
         # but since it is involved with the calculation of the embedding, it will receive a gradient.
+        PE = PE.unsqueeze(dim=0)
+
         self.register_buffer('PE', PE, persistent=False)  # (batch_size,seq_length,d_model)
     
     def forward(self, E):
@@ -67,9 +66,12 @@ class LayerNormalization(nn.Module):
         self.beta = nn.Parameter(torch.zeros(d_model))
         
     def forward(self, E):
-        mean = E.mean(dim=-1, keepdim=True)
+        mean = E.mean(dim=-1, keepdim=True) 
         var = E.var(dim=-1, keepdim=True, unbiased=False)
         normalized = (E - mean) / torch.sqrt(var + self.eps)
+        # same dimensions as E , just that every element in E has been replaced by 
+        # the mean / var  of the exact embedding it belongs to .
+        # the use of eps is standard practice to avoid devision by zero( var > 0)
         return self.gamma * normalized + self.beta
 
 class ResConnection(nn.Module): 
@@ -77,8 +79,13 @@ class ResConnection(nn.Module):
         super().__init__()
         self.Norm = LayerNormalization(d_model)
         
-    def forward(self, E, next_layer):
-        return E + self.Norm(next_layer(E))
+    def forward(self, E, curr_layer):
+        print(E)
+        print("Embeddings")
+        print(E+curr_layer(E))
+        print("Embeddings+values")
+
+        return self.Norm(E+curr_layer(E))
 
 class MultiHeadAtt(nn.Module):
     def __init__(self, num_heads, d_model):
@@ -103,10 +110,12 @@ class MultiHeadAtt(nn.Module):
         d_k = q.shape[-1]
         att_scores = torch.matmul(q, k.transpose(-2, -1)) / (d_k ** 0.5)
         if mask is not None:
-            att_scores = att_scores.masked_fill(mask == 0, float('-inf'))
-        att_weights = torch.softmax(att_scores, dim=-1)
-        values = torch.matmul(att_weights, v)
-        return values
+            att_scores = att_scores.masked_fill(mask == 0,-1e9)
+        att_weights = att_scores.softmax(dim=-1)
+        weighted_values = att_weights @ v
+        print("weighted_values")
+        print(weighted_values)
+        return weighted_values
 
     def forward(self, E, mask=None):
         Q = self.W_Q(E)
@@ -132,32 +141,28 @@ class DecoderBlock(nn.Module):
         self.res_conn1 = ResConnection(d_model)
         self.mlp = MLPBlock(d_mlp, d_model)
         self.res_conn2 = ResConnection(d_model)
-        self.dropout = nn.Dropout(0.1)
         
     def forward(self, E, mask=None):
         # Self attention with residual connection
-        att_output = self.res_conn1(E, lambda x: self.dropout(self.self_attention(x, mask)))
+        att_output = self.res_conn1(E, lambda x: self.self_attention(x, mask))
         # MLP with residual connection
-        mlp_output = self.res_conn2(att_output, lambda x: self.dropout(self.mlp(x)))
+        mlp_output = self.res_conn2(att_output, lambda x: self.mlp(x))
         return mlp_output
 
 class Decoder(nn.Module):
-    def __init__(self, vocab_size, d_model, d_mlp, num_heads, num_layers, seq_length):
+    def __init__(self, vocab_size, d_model, d_mlp, num_heads, num_blocks, seq_length):
         super().__init__()
         self.embedding = InputEmbeddings(d_model, vocab_size)
         self.pos_encoding = PosEncoding(seq_length, d_model)
-        self.layers = nn.ModuleList([DecoderBlock(d_model, d_mlp, num_heads) for _ in range(num_layers)])
+        self.layers = nn.ModuleList([DecoderBlock(d_model, d_mlp, num_heads) for _ in range(num_blocks)])
         self.norm = LayerNormalization(d_model)
         
     def forward(self, x, mask=None):
-        # Convert tokens to embeddings and add positional encoding
         x = self.embedding(x)
         x = self.pos_encoding(x)
-        
-        # Pass through each decoder layer
+        i=0
         for layer in self.layers:
             x = layer(x, mask)
-            
         return self.norm(x)
 
 class Projection(nn.Module):
@@ -166,36 +171,43 @@ class Projection(nn.Module):
         self.proj = nn.Linear(d_model, vocab_size)
         
     def forward(self, x):
-        # Project the decoder output back to vocabulary space
         return self.proj(x)
     
 class Transformer(nn.Module):
     def __init__(self, vocab_size, d_model, d_mlp, num_heads, N, seq_length):
         super().__init__()
         self.decoder = Decoder(vocab_size, d_model, d_mlp, num_heads, N, seq_length)
-        self.projection = Projection(d_model, vocab_size)
+        self.proj = Projection(d_model, vocab_size)
         
     def forward(self, x, mask=None):
-        # Get decoder output
         decoder_output = self.decoder(x, mask)
-        # Project to vocabulary space
-        logits = self.projection(decoder_output)
+        logits = self.proj(decoder_output)
         return logits
 
     def generate(self, input_ids, max_length, temperature=1.0):
-        # Generation loop
+        print(input_ids)
         for _ in range(max_length - input_ids.shape[1]):
-            # Create attention mask for autoregressive generation
             seq_len = input_ids.shape[1]
-            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=0).bool()
+            print(mask)
             mask = mask.unsqueeze(0)  # Add batch dimension
-            
-            # Get model predictions
             logits = self.forward(input_ids, mask)
             next_token_logits = logits[:, -1, :] / temperature
-            next_token = torch.multinomial(torch.softmax(next_token_logits, dim=-1), num_samples=1)
-            
-            # Concatenate with input_ids
+            pre_next_token=torch.softmax(next_token_logits, dim=-1)
+            next_token = torch.multinomial(pre_next_token, num_samples=1)
             input_ids = torch.cat([input_ids, next_token], dim=1)
             
         return input_ids
+
+d_model=4
+d_mlp=24
+vocab_size=10
+heads=1
+blocks=1
+seq_len=3
+batch_size=2
+tokens=torch.randint(high=9,size=[batch_size,seq_len])
+T=Transformer(vocab_size,d_model,d_mlp,heads,blocks,seq_len)
+out=T.generate(tokens,50)
+print(tokens.shape)
+print(out.shape)
