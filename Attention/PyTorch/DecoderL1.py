@@ -80,19 +80,17 @@ class ResConnection(nn.Module):
         self.Norm = LayerNormalization(d_model)
         
     def forward(self, E, curr_layer):
-        print(E)
-        print("Embeddings")
-        print(E+curr_layer(E))
-        print("Embeddings+values")
-
-        return self.Norm(E+curr_layer(E))
+        return E + self.Norm(curr_layer(E))
 
 class MultiHeadAtt(nn.Module):
-    def __init__(self, num_heads, d_model):
+    def __init__(self, num_heads, d_model, dropout=0.1, temperature=1.0):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
         self.d_qkv = d_model // self.num_heads
+        self.dropout = nn.Dropout(dropout)  # Dropout added here
+        self.temperature = temperature  # Temperature parameter added here
+        
         if d_model % num_heads != 0:
             raise ValueError("d_model must be divisible by num_heads")
             
@@ -104,17 +102,16 @@ class MultiHeadAtt(nn.Module):
         self.H_Q = nn.ModuleList([nn.Linear(self.d_model, self.d_qkv, bias=False) for _ in range(self.num_heads)])
         self.H_K = nn.ModuleList([nn.Linear(self.d_model, self.d_qkv, bias=False) for _ in range(self.num_heads)])
         self.H_V = nn.ModuleList([nn.Linear(self.d_model, self.d_qkv, bias=False) for _ in range(self.num_heads)])
-        
+
     @staticmethod
-    def attention(q, k, v, mask):
+    def attention(q, k, v, mask, temperature):
         d_k = q.shape[-1]
         att_scores = torch.matmul(q, k.transpose(-2, -1)) / (d_k ** 0.5)
         if mask is not None:
             att_scores = att_scores.masked_fill(mask == 0,-1e9)
-        att_weights = att_scores.softmax(dim=-1)
-        weighted_values = att_weights @ v
-        print("weighted_values")
-        print(weighted_values)
+        att_weights = att_scores.softmax(dim=-1) / temperature  # Temperature applied to softmax
+        att_weights = torch.nn.functional.dropout(att_weights, p=0.1)  # Apply dropout
+        weighted_values = torch.matmul(att_weights, v)
         return weighted_values
 
     def forward(self, E, mask=None):
@@ -128,16 +125,16 @@ class MultiHeadAtt(nn.Module):
 
         heads_out = []
         for i in range(self.num_heads):
-            heads_out.append(self.attention(Heads_Q[i], Heads_K[i], Heads_V[i], mask))
+            heads_out.append(self.attention(Heads_Q[i], Heads_K[i], Heads_V[i], mask, self.temperature))
 
-        heads_together_strong = torch.cat(heads_out, dim=2)
+        heads_together_strong = torch.cat(heads_out, dim=-1)
         aggregated_values = self.W_O(heads_together_strong)
         return aggregated_values
 
 class DecoderBlock(nn.Module):
-    def __init__(self, d_model, d_mlp, num_heads):
+    def __init__(self, d_model, d_mlp, num_heads, dropout=0.1, temperature=1.0):
         super().__init__()
-        self.self_attention = MultiHeadAtt(num_heads, d_model)
+        self.self_attention = MultiHeadAtt(num_heads, d_model, dropout, temperature)
         self.res_conn1 = ResConnection(d_model)
         self.mlp = MLPBlock(d_mlp, d_model)
         self.res_conn2 = ResConnection(d_model)
@@ -150,17 +147,12 @@ class DecoderBlock(nn.Module):
         return mlp_output
 
 class Decoder(nn.Module):
-    def __init__(self, vocab_size, d_model, d_mlp, num_heads, num_blocks, seq_length):
+    def __init__(self,d_model, d_mlp, num_heads, num_blocks, dropout=0.1, temperature=1.0):
         super().__init__()
-        self.embedding = InputEmbeddings(d_model, vocab_size)
-        self.pos_encoding = PosEncoding(seq_length, d_model)
-        self.layers = nn.ModuleList([DecoderBlock(d_model, d_mlp, num_heads) for _ in range(num_blocks)])
+        self.layers = nn.ModuleList([DecoderBlock(d_model, d_mlp, num_heads, dropout, temperature) for _ in range(num_blocks)])
         self.norm = LayerNormalization(d_model)
         
     def forward(self, x, mask=None):
-        x = self.embedding(x)
-        x = self.pos_encoding(x)
-        i=0
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
@@ -174,40 +166,42 @@ class Projection(nn.Module):
         return self.proj(x)
     
 class Transformer(nn.Module):
-    def __init__(self, vocab_size, d_model, d_mlp, num_heads, N, seq_length):
+    def __init__(self, vocab_size, d_model, d_mlp, num_heads, N, max_length, dropout=0.1, temperature=1.0):
         super().__init__()
-        self.decoder = Decoder(vocab_size, d_model, d_mlp, num_heads, N, seq_length)
+        self.embedding = InputEmbeddings(d_model, vocab_size)
+        self.pos_encoding = PosEncoding(max_length, d_model)
+        self.decoder = Decoder(d_model, d_mlp, num_heads, N, dropout, temperature)
         self.proj = Projection(d_model, vocab_size)
         
     def forward(self, x, mask=None):
+        x = self.pos_encoding(self.embedding(x))
         decoder_output = self.decoder(x, mask)
-        logits = self.proj(decoder_output)
-        return logits
-
+        return self.proj(decoder_output)
     def generate(self, input_ids, max_length, temperature=1.0):
-        print(input_ids)
         for _ in range(max_length - input_ids.shape[1]):
             seq_len = input_ids.shape[1]
             mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=0).bool()
-            print(mask)
             mask = mask.unsqueeze(0)  # Add batch dimension
             logits = self.forward(input_ids, mask)
             next_token_logits = logits[:, -1, :] / temperature
             pre_next_token=torch.softmax(next_token_logits, dim=-1)
             next_token = torch.multinomial(pre_next_token, num_samples=1)
             input_ids = torch.cat([input_ids, next_token], dim=1)
-            
+            print(input_ids)
         return input_ids
 
-d_model=4
+
+d_model=10
 d_mlp=24
 vocab_size=10
-heads=1
-blocks=1
+heads=5
+blocks=10
 seq_len=3
-batch_size=2
+max_length=50
+batch_size=5
+dropout=0.1
+Temperature=2
+
 tokens=torch.randint(high=9,size=[batch_size,seq_len])
-T=Transformer(vocab_size,d_model,d_mlp,heads,blocks,seq_len)
-out=T.generate(tokens,50)
-print(tokens.shape)
-print(out.shape)
+T=Transformer(vocab_size,d_model,d_mlp,heads,blocks,max_length,dropout,Temperature)
+out=T.generate(tokens,max_length)
