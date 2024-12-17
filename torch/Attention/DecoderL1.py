@@ -47,7 +47,7 @@ class MultiHeadAtt(nn.Module):
 
         heads_out = []
         for i in range(self.num_heads):
-            heads_out.append(self.attention(Heads_Q[i], Heads_K[i], Heads_V[i], mask, self.temperature))
+            heads_out.append(MultiHeadAtt.attention(Heads_Q[i], Heads_K[i], Heads_V[i], mask, self.temperature))
 
         heads_together_strong = torch.cat(heads_out, dim=-1)
         aggregated_values = self.W_O(heads_together_strong)

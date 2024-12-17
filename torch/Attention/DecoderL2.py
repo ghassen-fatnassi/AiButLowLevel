@@ -54,7 +54,7 @@ class MultiHeadAtt(nn.Module):
         Heads_K=Heads_K.view(Heads_K.shape[0],Heads_K.shape[1],self.num_heads,self.d_qkv).transpose(1,2)
         Heads_V=Heads_V.view(Heads_V.shape[0],Heads_V.shape[1],self.num_heads,self.d_qkv).transpose(1,2)
         
-        heads_out=self.attention(Heads_Q,Heads_K,Heads_V,mask,self.temperature)
+        heads_out=MultiHeadAtt.attention(Heads_Q,Heads_K,Heads_V,mask,self.temperature)
         #(b_size,h,seq_len,d_model) transpose(1,2) => (b_size,seq_len,h,d_kqv) view() => (b_size,seq_len,d_model)
         heads_together_strong=heads_out.transpose(1,2).contiguous().view(heads_out.shape[0],heads_out.shape[2],self.d_model)
         aggregated_values = self.W_O(heads_together_strong)
