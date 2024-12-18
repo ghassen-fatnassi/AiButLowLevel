@@ -20,7 +20,7 @@ class InputEmbeddings(nn.Module):
         return self.Embedding(Tokens) * math.sqrt(self.d_model)
 
 
-class PosEncoding(nn.Module):
+class VanillaPosEnc(nn.Module):
     """Takes in a sequence of embeddings and adds to them their corresponding positional encoding"""
     
     def __init__(self, seq_length, d_model):
