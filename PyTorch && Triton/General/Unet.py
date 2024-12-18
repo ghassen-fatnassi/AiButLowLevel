@@ -3,6 +3,8 @@ import torch.nn as nn
 import segmentation_models_pytorch as smp
 torch.manual_seed(50)
 
+# an implementation of Unet where uc an control pretty much anything when constructing the model instance
+
 class ConvBlock(nn.Module):
     def __init__(self, in_c, out_c, negative_slope):
         super().__init__()
