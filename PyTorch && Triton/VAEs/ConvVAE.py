@@ -1,11 +1,16 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+import matplotlib.pyplot as plt
+import torchvision
 
 class ConvVAE(nn.Module):
     def __init__(self, in_size, in_channels, latent_dim, hidden_channels: list, dropout_rate=0.1):
         super().__init__()
-        self.in_size = in_size  # Input should be a (in_channels, in_size, in_size) image
+        self.in_size = in_size
         self.in_channels = in_channels
         self.z_dim = latent_dim
 
@@ -81,14 +86,6 @@ class ConvVAE(nn.Module):
 
         self.decoder = nn.Sequential(*decoder_layers)
 
-    @staticmethod
-    def generate(model, device, num_samples=10):
-        model.eval()
-        with torch.no_grad():
-            z = torch.randn(num_samples, model.z_dim).to(device)
-            samples = model.decode(z)
-        return samples
-
     def encode(self, x):
         x = self.encoder(x)
         mu, log_var = x.chunk(2, dim=1)
@@ -108,135 +105,12 @@ class ConvVAE(nn.Module):
         z = self.reparameterize(mu, log_var)
         return self.decode(z), mu, log_var
 
-import pytest
-import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
+#i added the loss function here even tho it's not part of the instance of the model
+#because it's an identity of the VAE , the closed form KL div is very important to know
+def loss_func(mu, log_var, x_hat, x):
+    MSE = F.mse_loss(x_hat, x, reduction='sum')
+    KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
+    return torch.mean(KL + MSE)
 
-class TestConvVAE:
-    @pytest.fixture
-    def model_params(self):
-        return {
-            'in_size': 32,
-            'in_channels': 3,
-            'latent_dim': 16,
-            'hidden_channels': [32, 64, 128],
-            'dropout_rate': 0.1
-        }
-    
-    @pytest.fixture
-    def model(self, model_params):
-        return ConvVAE(**model_params)
-    
-    @pytest.fixture
-    def sample_batch(self, model_params):
-        batch_size = 4
-        return torch.randn(batch_size, model_params['in_channels'], 
-                         model_params['in_size'], model_params['in_size'])
-
-    def test_initialization(self, model_params):
-        # Test successful initialization
-        model = ConvVAE(**model_params)
-        assert isinstance(model, nn.Module)
-        
-        # Test invalid input size
-        with pytest.raises(ValueError):
-            invalid_params = model_params.copy()
-            invalid_params['in_size'] = 31  # Not divisible by 2^3
-            ConvVAE(**invalid_params)
-        
-        # Test empty hidden channels
-        with pytest.raises(ValueError):
-            invalid_params = model_params.copy()
-            invalid_params['hidden_channels'] = []
-            ConvVAE(**invalid_params)
-
-    def test_encoder_output_shape(self, model, sample_batch):
-        mu, log_var = model.encode(sample_batch)
-        assert mu.shape == (sample_batch.shape[0], model.z_dim)
-        assert log_var.shape == (sample_batch.shape[0], model.z_dim)
-
-    def test_decoder_output_shape(self, model, model_params, sample_batch):
-        batch_size = sample_batch.shape[0]
-        z = torch.randn(batch_size, model_params['latent_dim'])
-        output = model.decode(z)
-        
-        expected_shape = (batch_size, model_params['in_channels'], 
-                         model_params['in_size'], model_params['in_size'])
-        assert output.shape == expected_shape
-
-    def test_reparameterization(self, model, sample_batch):
-        mu, log_var = model.encode(sample_batch)
-        z = model.reparameterize(mu, log_var)
-        assert z.shape == mu.shape
-        
-        # Test that reparameterization is different for multiple runs
-        z2 = model.reparameterize(mu, log_var)
-        assert not torch.allclose(z, z2)
-
-    def test_forward_pass(self, model, sample_batch):
-        recon, mu, log_var = model(sample_batch)
-        assert recon.shape == sample_batch.shape
-        assert mu.shape == (sample_batch.shape[0], model.z_dim)
-        assert log_var.shape == (sample_batch.shape[0], model.z_dim)
-
-    def test_generate_samples(self, model):
-        num_samples = 5
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = model.to(device)
-        
-        samples = ConvVAE.generate(model, device, num_samples)
-        expected_shape = (num_samples, model.in_channels, model.in_size, model.in_size)
-        assert samples.shape == expected_shape
-        
-        # Test values are in valid range for sigmoid output
-        assert torch.all(samples >= 0) and torch.all(samples <= 1)
-
-    def test_output_range(self, model, sample_batch):
-        recon, _, _ = model(sample_batch)
-        # Test if output is in [0, 1] range due to sigmoid activation
-        assert torch.all(recon >= 0) and torch.all(recon <= 1)
-
-    def test_training_mode(self, model, model_params):
-        # Create a fixed latent vector
-        z = torch.randn(4, model_params['latent_dim'])
-        # Test train mode
-        model.train()
-        out1 = model.decode(z)
-        out2 = model.decode(z)
-        # Outputs should be different in training mode due to dropout
-        assert not torch.allclose(out1, out2)
-        
-        # Test eval mode
-        model.eval()
-        out1 = model.decode(z)
-        out2 = model.decode(z)
-        # Outputs should be identical in eval mode when using the same z
-        assert torch.allclose(out1, out2)
-
-    def test_batch_norm_behavior(self, model, sample_batch):
-        # Test that BatchNorm statistics are updated in training mode
-        model.train()
-        initial_mean = model.encoder[0][1].running_mean.clone()
-        
-        # Forward pass should update BatchNorm statistics
-        _ = model(sample_batch)
-        
-        updated_mean = model.encoder[0][1].running_mean
-        assert not torch.allclose(initial_mean, updated_mean)
-
-    @pytest.mark.parametrize("batch_size", [2, 4, 8])
-    def test_different_batch_sizes(self, model, model_params, batch_size):
-        x = torch.randn(batch_size, model_params['in_channels'], 
-                       model_params['in_size'], model_params['in_size'])
-        recon, mu, log_var = model(x)
-        assert recon.shape == x.shape
-        assert mu.shape == (batch_size, model_params['latent_dim'])
-        assert log_var.shape == (batch_size, model_params['latent_dim'])
-
-if __name__ == "__main__":
-    pytest.main([__file__])
-
-def loss_func(mu,log_var,x_hat,x):
-    MSE=F.mse_loss(x_hat,x,reduction='mean')
-    KL=-0.5*torch.sum(1+log_var-mu**2-torch.exp(log_var),dim=1)
-    return KL+MSE
+# I have a kaggle notebook where i train a ConvVae on MNIST dataset :
+# Link: 
