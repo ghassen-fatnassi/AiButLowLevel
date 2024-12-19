@@ -59,3 +59,10 @@ class VAE(nn.Module):
         mu,log_var=self.encode(x)
         z=self.reparameterize(mu,log_var)
         return mu,log_var,self.decode(z)
+
+def loss_func(mu,log_var,x_hat,x):
+    # since the last activation function of the decoder is identity , imma use MSE loss
+    # if the activation was something like a sigmoid() , we should use log_loss
+    MSE=F.mse_loss(x_hat,x,reduction='mean')
+    KL=-0.5*torch.sum(1+log_var-mu**2-torch.exp(log_var),dim=1)
+    return KL+MSE

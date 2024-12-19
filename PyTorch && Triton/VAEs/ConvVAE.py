@@ -235,3 +235,8 @@ class TestConvVAE:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+def loss_func(mu,log_var,x_hat,x):
+    MSE=F.mse_loss(x_hat,x,reduction='mean')
+    KL=-0.5*torch.sum(1+log_var-mu**2-torch.exp(log_var),dim=1)
+    return KL+MSE
