@@ -105,12 +105,17 @@ class ConvVAE(nn.Module):
         z = self.reparameterize(mu, log_var)
         return self.decode(z), mu, log_var
 
-#i added the loss function here even tho it's not part of the instance of the model
-#because it's an identity of the VAE , the closed form KL div is very important to know
+# I added the loss functions here even tho it's not part of the instance of the model
+# because it's an identity of the VAE , the closed form KL div is very important to know
 def loss_func(mu, log_var, x_hat, x):
     MSE = F.mse_loss(x_hat, x, reduction='sum')
     KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
     return torch.mean(KL + MSE)
 
-# I have a kaggle notebook where i train a ConvVae on MNIST dataset :
+def Beta_loss_func(mu, log_var, x_hat, x):
+    MSE = F.mse_loss(x_hat, x, reduction='sum')
+    KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
+    return torch.mean(KL + MSE)
+
+# I have a kaggle notebook where i train a ConvVAE & B-ConvVAE(with different values fo Beta) on MNIST dataset :
 # Link: 
