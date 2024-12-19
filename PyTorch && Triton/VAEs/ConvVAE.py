@@ -1,11 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-import matplotlib.pyplot as plt
-import torchvision
 
 class ConvVAE(nn.Module):
     def __init__(self, in_size, in_channels, latent_dim, hidden_channels: list, dropout_rate=0.1):
@@ -110,12 +105,12 @@ class ConvVAE(nn.Module):
 def loss_func(mu, log_var, x_hat, x):
     MSE = F.mse_loss(x_hat, x, reduction='sum')
     KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
-    return torch.mean(KL + MSE)
+    return KL + MSE
 
-def Beta_loss_func(mu, log_var, x_hat, x):
+def Beta_loss_func(mu, log_var, x_hat, x,Beta):
     MSE = F.mse_loss(x_hat, x, reduction='sum')
     KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
-    return torch.mean(KL + MSE)
+    return Beta*KL + MSE
 
 # I have a kaggle notebook where i train a ConvVAE & B-ConvVAE(with different values fo Beta) on MNIST dataset :
-# Link: 
+# Link: https://www.kaggle.com/code/musclnbrains/convvae
