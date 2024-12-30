@@ -19,5 +19,5 @@ A repository where I implement AI models from scratch.
 ### VAEs  
 - [x] Vanilla VAE  
 - [x] Convolutional VAE (ConvVAE)  
-- [ ] Time-Dependent VAE (TD-VAE)  
+- [ ] Temporal-Diff VAE (TD-VAE)  
 - [ ] Vector Quantized  VAE (VQ-VAE)  
