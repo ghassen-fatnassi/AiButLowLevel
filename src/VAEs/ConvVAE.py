@@ -112,5 +112,16 @@ def Beta_loss_func(mu, log_var, x_hat, x,Beta):
     KL = -0.5 * torch.sum(1 + log_var - mu**2 - torch.exp(log_var), dim=1)
     return Beta*KL + MSE
 
+class VAE_Loss(nn.Module):
+    def __init__(self,Beta=True): 
+        super().__init__()
+        self.use_beta=Beta
+    def forward(self,mu,log_var,x_hat,x,beta):
+        if(self.use_beta):
+            return Beta_loss_func(mu,log_var,x_hat,x,beta)
+        else:
+            return loss_func(mu,log_var,x_hat,x)
+
+
 # I have a kaggle notebook where i train a ConvVAE & B-ConvVAE(with different values fo Beta) on MNIST dataset :
 # Link: https://www.kaggle.com/code/musclnbrains/convvae
