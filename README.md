@@ -10,7 +10,7 @@ A repository where I implement AI models from scratch.
 - [ ] Flash Multi-Head Attention (FlashMHA)  
 
 ### GANs  
-- [ ] Vanilla GAN  
+- [X] Vanilla GAN  
 - [ ] Wasserstein GAN  
 
 ### General  
