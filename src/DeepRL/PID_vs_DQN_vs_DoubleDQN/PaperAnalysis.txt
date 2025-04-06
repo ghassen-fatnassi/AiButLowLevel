@@ -1,0 +1,80 @@
+Rainbow-DQN vs double-DQN vs Vanilla-DQN vs PID
+
+1/Vanilla-DQN
+
+    *init replay_buffer D
+    *init Q function
+    *for ep in range(ep_num)
+        *sample first state (initialized by the env seed)
+        *for t in range(Horizon) # this is the rollout/episode loop
+            *if(rand<eps){sample random action a_t}
+             else {a_t=max_a{Q(s_t,a;teta)}}
+            *s_(t+1),r_t=env.step(a_t)
+            *D.append({a_t,s_t,r_t,s_(t+1)})
+            *sample random minibatch(fixed size) of transitions from D (check how to make the perfect data structure for this)
+            *for j in range(len(minibatch)):
+                *if(minibatch[j].s_(t+1)=terminal){y_j=minibatch[j].r_j}
+                 else {y_j=minibatch[j].r_j+gamma*max_a{Q(minibatch[j].s_(t+1),a;teta)}}  # max_a{Q(minibatch[j].s_(t+1),a;teta)} = V(minibatch[j].s_(t+1);teta)
+                backprop (y_j - Q(minibatch[j].s_t,minibatch[j].a_t;teta))²
+            end
+        end
+    end
+
+**Questions:
+1/ what's the effect of the replay buffer being pretty much empty is the first few iterations
+    possible fix: warmup rollout just to fill replay buffer
+2/ what's the effect of initialization on the training:
+    if Q is initialized to be too high for some states and those states are encountered early on
+    possible fix A : what if we make 2 scheduled parameters (m,n) (m+n=1) : (m decreasing to 1 and n increasing to 1)
+        y_j=m*minibatch[j].r_j + n * gamma*max_a{Q(minibatch[j].s_(t+1),a;teta)}
+        in bellman equation, Q is created using DP from the reward function , 
+        then here it's this smoothing effect that might approximate it !
+    possible fix B : run sanity check on the initialized Q function until we find a good one
+        one way is to make sure that the reward accumulated is not too far off the one expected by Q function in a set of initial short trajectories
+3/ can we reasonably bound the error (y_j - Q(minibatch[j].s_t,minibatch[j].a_t;teta))²
+4/ How much does the shape of reward function affect convergence of Q
+5/ max_a{Q(minibatch[j].s_(t+1),a;teta)} is very computationally heavy
+    O(size of action space * feedforward) => impossible in continuous action spaces 
+
+**Answers and new questions found in the paper:
+6/ why do we randomize when sampling a minibatch from replay buffer : 
+    => it acts as a way to prevent overfitting ; 
+    since if we didn't sample randomly , 
+    we will be taking consecutive samples which means : 
+        correlated samples with similar rewards and similar Q values , 
+        that would likely cause a bias to emerge in the Q , 
+        since if a sequence of good state actions pairs comes in and we train on it , 
+        we will very likely over Q-estimate the state actions pairs in that trajectory
+        => Limits exploration => bias.
+        maybe if our network could grasp the causality, 
+        meaning can keep more than one state action pair in context it would be a different story , 
+        then we will rather have a Q value that updates its value with each action that gets in context ,
+        and hopefully keep the whole trajectory in context .
+7/ sampling uniformly turns out to be an over the counter approach they already criticized
+    what are possible approaches of sampling that would prioritize samples we would learn most from?
+    alternative A: prioritized sweeping (is mentioned in the paper)
+    alternative B: sample states where Q function has a high rate of change over past iterations
+                   but that would make the unsampled pairs less likely to be sampled => idk
+8/ the paper complicated it a bit for the Q function, 
+    maybe the training time was that long because of the image input
+9/ about the max_a(Q) that i said is very computationally expensive 
+    since it scales linearly with the size of action space.
+    turns out that's not what they did in the paper , the Q function only takes as input the state
+    and outputs the Q for all actions  , it would still be very computationally expensive , 
+    but scaling the last layer is better than doing multiple forward passes
+    => output layer's number of neurons = size fo action space of env
+10/ in the paepr they used the same hyperparams across all games 
+    which caused problems when the rewards differed across games.
+    the only effort they did to mitigate this was to make: 
+        all healthy positive rewards +1 , all negative reawrd -1 adn left 0 as it is
+    that can explain the big variance of performance across games , even tho most of them are pretty good
+11/ the way they dealth with the problem of replay buffer being empty at first few iterations is:
+    they initialized eps to 1 and lienarly annealed it to 0.1 for the first 1M frames
+    which might filled the replay buffer pretty well due to the first few steps with high probability of exploration
+12/ figure 3 in the paper clearly shows the value function being high and getting higher as the possibility of getting reward grows
+    which means that the algo learned some patterns
+    but it also shows on point C that the agent actually has a lack of information about future possible rewards and did not consider all the options 
+    this point is still foggy ; better formalize it => idk
+
+**things to measure to get answers for the questions:
+1/
