@@ -63,6 +63,8 @@ class node
             res.diff=cos(this->val)*this->diff;
             return res;
         }
+
+        
 };
 
 int main()
