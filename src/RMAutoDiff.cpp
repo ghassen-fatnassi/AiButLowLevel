@@ -18,7 +18,7 @@ struct Node {
 };
 
 using N = shared_ptr<Node>;
-inline N make(float v) { return make_shared<Node>(v); }
+N make(float v) { return make_shared<Node>(v); }
 
 N add(const N &a, const N &b) {
     N out = make(a->val + b->val);
