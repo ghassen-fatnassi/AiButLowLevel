@@ -8,7 +8,7 @@ struct Node {
 
     explicit Node(float value) : val(value) {}
 
-    // Backward pass
+    // this works in a very weird way , but the logic of accumulation is correct , try to visualize it in the sample graph below
     void backward(float seed = 1.0f) {
         grad += seed;
         for (auto &[parent, local_deriv] : parents) {
